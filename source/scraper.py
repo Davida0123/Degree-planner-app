@@ -2,22 +2,42 @@ from bs4 import BeautifulSoup
 import requests 
 import json
 
-def subject_url_parser(base_url):
+headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+base_url ="https://calendar.macewan.ca/course-descriptions/"
+
+def scrape_course_offering(base_url):
     '''
-    Loops through all available courses and passes their respective urls to scrape_department()
+    scrapes all available courses and returns them in a list
+    pre: courses are ordered in webpage
     '''
+    try:
+        page = requests.get(base_url, headers) #returns a response object 
+        page.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")#debugging
+        return False
     
-    pass
-def scrape_department(dept_code):
+    course_list = []
+    soup = BeautifulSoup(page.text, 'html.parser')
+    courses = soup.select('div.az_sitemap > ul li a')
+    count = 0 #debugging
+    for course in courses:
+        texts = course.text.strip()
+        course_list.append(texts[:4])
+    return course_list
+
+def scrape_department(dept_code, dept_name):
     '''
-    Scrapes the passed website's courses and saves data in a structured json
+    Scrapes the passed website for course info and saves data in a structured json
     To do: configure return type, dept code only works for cmpt rn
     '''
-    dept_code = "https://calendar.macewan.ca/course-descriptions/cmpt/" #integrated with only cmpt for now
     try:
-        page = requests.get(dept_code, timeout=(3.05, 10.05)) #returns a response object 
+        page = requests.get(dept_code, headers, timeout=(3.05, 10.05)) #returns a response object 
+        page.raise_for_status()
     except requests.exceptions.RequestException as e:
-        return
+        print(f"Request failed: {e}")#debugging
+        return False
+    
     soup = BeautifulSoup(page.text, 'html.parser')
     course_dict = {}
     courses = soup.find_all('div', class_ = "courseblock") #list of all courses info
@@ -60,7 +80,26 @@ def scrape_department(dept_code):
         course_dict[ccode] = {'Title':title, 'Credits':credits, 'Schedule':schedule, 'Description':desc, 'Prerequisites': preq, 'Restrictions': restrictions, 'Notes': notes}
 
     # Save the extracted course data to a JSON file
-    with open('cmpt_courses.json', 'w', encoding='utf-8') as f:
+    with open(dept_name +'_courses.json', 'w', encoding='utf-8') as f:
         json.dump(course_dict, f, indent=4, ensure_ascii=False)
-    print("Successfully saved course data to cmpt_courses.json!")
-    return
+    print("Successfully saved course data to " + dept_name + "_courses.json!")
+    return True
+
+#scrape_department("https://calendar.macewan.ca/course-descriptions/cmpt/", 'english')
+
+def subject_url_parser(base_url):
+    '''
+    Loops through all available courses and passes their respective name & urls to scrape_department()
+    parameters:
+        -base_url: url to base university page containing all offered courses
+    '''
+    
+    courses = scrape_course_offering(base_url) #list of all offered courses
+    if not courses:
+            return
+    
+    for course in courses:
+        dept_code = base_url + course.lower() + '/'
+        scrape_department(dept_code, course)
+    
+subject_url_parser(base_url)
