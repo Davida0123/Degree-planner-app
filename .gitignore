@@ -1,2 +1,10 @@
+#Output Data to be uploaded
 MacEwan_courses.json
 *.json
+
+#Environment variables
+.env
+
+#Virtual environment & cache
+venv/
+__pycache__/
