@@ -2,6 +2,7 @@ from bs4 import BeautifulSoup
 import requests 
 import json
 import time
+import re
 
 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 university = "MacEwan"
@@ -32,8 +33,15 @@ def scrape_department(dept_code, dept_name):
         ccode = header_prts[0].replace('\xa0', ' ').strip() #course code/ID
         title = header_prts[1].strip() if len(header_prts) > 1 else "N/A"
         meta_data = header_prts[2] if len(header_prts) > 2 else ""
-        credits = meta_data[:1] if meta_data else "N/A"
-        schedule = '(' + meta_data[-6:] + ')' if len(meta_data) >= 6 else 'N/A'
+
+        # extract credits
+        credit_match = re.search(r'(\d+(?:\.\d+)?)', meta_data)
+        credits = credit_match.group(1) if credit_match else "N/A"
+
+        # extract schedule
+        schedule_match = re.search(r'\d+-\d+-\d+(?:\.\d+)?', meta_data)
+        schedule = f"({schedule_match.group(0)})" if schedule_match else "N/A"
+        
         notes = []
         restrictions = []
         desc_elem = course.find(class_ = "courseblockdesc noindent")

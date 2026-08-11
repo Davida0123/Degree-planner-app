@@ -8,3 +8,6 @@ An interactive degree planner designed to simplify university course mapping, fe
 
 * Determine what language/tools we are going to use to scrape the data
     *
+
+# Design Specs
+* ~2254 courses
