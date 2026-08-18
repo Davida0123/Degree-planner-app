@@ -1,5 +1,6 @@
 import re
 
+#Handles parsing and assigning respective logic between courses(through string modification/clarification) 
 def normalize_prereq_str(raw_txt: str) -> str:
     '''
     Preprocessor that normalizes passed prerequisite string to enhance reading and sorting of data
@@ -50,6 +51,7 @@ def normalize_prereq_str(raw_txt: str) -> str:
 
     return text
 
+#Grade Extraction
 def extract_grade_requirements(text: str, default_grade: str = "D"): # D is minimum passing grade
     """
     Extracts explicit grade requirements from text and normalizes courses
@@ -93,6 +95,7 @@ def extract_grade_requirements(text: str, default_grade: str = "D"): # D is mini
     print(f'cleaned: {cleaned_text}') # debugg
     return cleaned_text.strip()
 
+#Grade Tokenization
 def make_course_node(token: str) -> dict:
     '''
     turns "CourseCode__GRADE_?__" into JSON format
@@ -108,6 +111,49 @@ def make_course_node(token: str) -> dict:
         "node_type": "MANUAL_APPROVAL",
         "raw_text": token.strip()
     }
+
+#Logic Splitter
+def split_at_top_level(text: str, delimiter_regex: str) -> list[str]:
+    """
+    splits an expression by a passed logical delimiter (like AND, OR, or ;) only when that operator is 
+    outside of all parentheses.
+    post: returns a list of course codes that can be easily parsed into json nested tree logic
+    """
+    parts = [] #result
+    current = []
+    depth = 0 #0->top level, > 0 means inside parenthesis
+    i = 0
+    pattern = re.compile(delimiter_regex, re.IGNORECASE) # compiling into a REGEX obj speeds up processing time
+
+    while i < len(text):
+        char = text[i]
+
+        if char == '(':
+            depth += 1
+            current.append(char)
+            i += 1
+        elif char == ')':
+            depth = max(0, depth - 1)
+            current.append(char)
+            i += 1
+        elif depth == 0:
+            # Check if a delimiter starts at the current index
+            match = pattern.match(text[i:])
+            if match: #if 'and','or',...
+                parts.append("".join(current).strip()) #store left side of delimeter in parts
+                current = []
+                i += match.end() #move pointer passed operator
+            else:
+                current.append(char)
+                i += 1
+        else: # inside (), dont split, jsut collect characters to preserve presedence
+            current.append(char)
+            i += 1
+
+    if current:
+        parts.append("".join(current).strip()) #
+
+    return [p for p in parts if p] # ['cmpt 103', 'cmpt 204']
 
 if __name__ == "__main__":
     #extract_grade_requirements("STAT 151 and STAT 161",)
