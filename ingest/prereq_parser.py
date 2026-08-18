@@ -2,38 +2,112 @@ import re
 
 def normalize_prereq_str(raw_txt: str) -> str:
     '''
+    Preprocessor that normalizes passed prerequisite string to enhance reading and sorting of data
     Pre: raw_txt isnt empty
     '''
 
     text = raw_txt.strip()
 
-    #match dep code + number followed by ','. i.e cmpt 101, 102, 104
-    shorthand_pattern = r'([A-Z]{3,4})\s+(\d{3})\s*(?:,|/|and|or)\s*(\d{3})'
-    #eg                     cmpt          103      ','or'/'or'and'or'or'  104  
-    #group                  1              2         Not stored            3
-    
-### 
-    while re.search(shorthand_pattern, text):
-        text = re.sub(shorthand_pattern, r'\1 \2 and \1 \3', text) # backreference using groub 1,2 and 3 from shorthand_pattern
-#                how do we know the operator here ^ is 'and' and not 'or'
-    # 2. Check for Disjunction prefixes ("One of", "Either of")
-    disjunction_prefixes = ["one of", "any of", "either of"]
-    is_or_group = any(text.lower().startswith(prefix) for prefix in disjunction_prefixes)
+    if not text or text.lower() == "n/a":
+        return "N/A"
 
-    # Clean off the prefix phrase once identified
-    for prefix in disjunction_prefixes:
-        if text.lower().startswith(prefix):
-            text = text[len(prefix):].strip(" :")
+    # 1. Standardize slashes to ' or '
+    text = re.sub(r'\s*/\s*', ' or ', text)
 
-    # 3. Replace remaining commas between course codes with the appropriate operator
-    replacement_op = " OR " if is_or_group else " AND "
-    
-    # Regex looks for a comma surrounded by course codes (e.g. "CMPT 101, CMPT 201")
-    text = re.sub(r'(?<=[A-Z]{3,4}\s\d{3})\s*,\s*(?=[A-Z]{3,4}\s\d{3})', replacement_op, text)
-    
-    # Standardize Oxford commas (e.g., ", and" -> " AND ", ", or" -> " OR ")
-    text = re.sub(r'\s*,\s*and\s+', ' AND ', text, flags=re.IGNORECASE)
-    text = re.sub(r'\s*,\s*or\s+', ' OR ', text, flags=re.IGNORECASE)
+    # 2. Standardize Oxford commas and clean punctuation
+    text = re.sub(r'\s*,\s*or\s+', ' or ', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s*,\s*and\s+', ' and ', text, flags=re.IGNORECASE)
+
+    # 3. Forward-fill omitted department prefixes (e.g., "CMPT 101, 103, or 200")
+    # Loops until all chained numbers inherit the preceding department
+    dept_chain_pattern = r'([A-Z]{3,4})\s+(\d{3})((?:\s*(?:,|and|or)\s*\d{3})+)'
+    #eg                      cmpt          103        ',' -> 'and' or 'or'   104
+    #group i.e()               1            2          ignored            3
+    def expand_chain(match):
+        dept = match.group(1)
+        first_num = match.group(2)
+        rest = match.group(3)
+        # Inject the department prefix before every isolated course number in the rest of the chain
+        expanded_rest = re.sub(r'(\d{3})', rf'{dept} \1', rest)
+        return f"{dept} {first_num}{expanded_rest}"
+
+    text = re.sub(dept_chain_pattern, expand_chain, text, flags=re.IGNORECASE) #normalized
+
+    # 4. Handle serial OR lists: if a list of courses ends in 'or', replace preceding commas with 'or'
+    # Example: "CMPT 101, CMPT 103 or CMPT 200" -> "CMPT 101 or CMPT 103 or CMPT 200"
+    serial_or_pattern = r'([A-Z]{3,4}\s+\d{3})\s*,\s*(?=[A-Z]{3,4}\s+\d{3}\s+or\b)'
+    while re.search(serial_or_pattern, text, flags=re.IGNORECASE):
+        text = re.sub(serial_or_pattern, r'\1 or ', text, flags=re.IGNORECASE)
+
+    # 5. Remove quantifier phrasing ("one of", "any of", "either")
+    text = re.sub(r'\b(one of|any of|either of|either)\b\s*', '', text, flags=re.IGNORECASE)
+
+    # 6. Convert remaining standard commas between courses to 'and' (Implicit AND)
+    text = re.sub(r'([A-Z]{3,4}\s+\d{3})\s*,\s*(?=[A-Z]{3,4}\s+\d{3})', r'\1 and ', text)
+
+    # 7. Clean up extra spaces
+    text = re.sub(r'\s+', ' ', text).strip()
 
     return text
-###
+
+def extract_grade_requirements(text: str, default_grade: str = "D"): # D is minimum passing grade
+    """
+    Extracts explicit grade requirements from text and normalizes courses
+    into a standardized format: (COURSE_CODE, MIN_GRADE).
+    """
+    cleaned_text = text.strip()
+    # 1. Check for a Leading Grade Scope (e.g., "A minimum grade of C- in CMPT 101 or CMPT 103")
+    leading_match = re.search(
+        r'(?:a\s+)?(?:minimum\s+grade\s+of|grade\s+of\s+at\s+least|minimum)\s+([A-D][+-]?)\s+(?:in|for)\s+',
+        cleaned_text,
+        flags=re.IGNORECASE
+    )
+    
+    active_scope_grade = default_grade
+    if leading_match:
+        active_scope_grade = leading_match.group(1).upper()
+        # Strip off the leading phrase so only course logic remains
+        cleaned_text = cleaned_text[:leading_match.start()] + cleaned_text[leading_match.end():]
+
+    # 2. Tag Trailing Inline Grades (e.g., "CMPT 103 with a minimum grade of B")
+    trailing_pattern = r'([A-Z]{3,4}\s+\d{3})\s+(?:with\s+(?:a\s+)?(?:minimum\s+)?grade\s+of\s+|with\s+)([A-D][+-]?)(?:\s+or\s+better)?'
+    
+    def tag_trailing(match):
+        course = match.group(1).upper()
+        grade = match.group(2).upper()
+        return f"{course}__GRADE_{grade}__"
+
+    cleaned_text = re.sub(trailing_pattern, tag_trailing, cleaned_text, flags=re.IGNORECASE)
+
+    # 3. Tag Remaining Untagged Courses with the Active Scope Grade
+    def tag_remaining(match):
+        course = match.group(1).upper()
+        return f"{course}__GRADE_{active_scope_grade}__"
+
+    # Match courses that have not already been tagged with __GRADE_X__ with the default grade
+    cleaned_text = re.sub(
+        r'([A-Z]{3,4}\s+\d{3})(?!__GRADE_)',
+        tag_remaining,
+        cleaned_text
+    )
+    print(f'cleaned: {cleaned_text}') # debugg
+    return cleaned_text.strip()
+
+def make_course_node(token: str) -> dict:
+    '''
+    turns "CourseCode__GRADE_?__" into JSON format
+    '''
+    match = re.match(r'([A-Z]{3,4}\s+\d{3})__GRADE_([A-D][+-]?)__', token.strip())
+    if match:
+        return {
+            "node_type": "COURSE_CHECK",
+            "course_code": match.group(1),
+            "min_grade": match.group(2)
+        }
+    return {
+        "node_type": "MANUAL_APPROVAL",
+        "raw_text": token.strip()
+    }
+
+if __name__ == "__main__":
+    #extract_grade_requirements("STAT 151 and STAT 161",)

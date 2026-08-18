@@ -11,3 +11,7 @@ An interactive degree planner designed to simplify university course mapping, fe
 
 # Design Specs
 * ~2254 courses
+
+# Developer Tips
+*  `python -m dir.filename` without .py
+*   add `if __name__ = "__main__"` to file to execute python scripts
